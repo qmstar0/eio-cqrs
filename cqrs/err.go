@@ -23,5 +23,5 @@ type SubscribedToTypeError struct {
 }
 
 func (e SubscribedToTypeError) Error() string {
-	return fmt.Sprintf("类型错误: %T 应该为`指针`", e.message)
+	return fmt.Sprintf("类型错误: %TC 应该为`指针`", e.message)
 }

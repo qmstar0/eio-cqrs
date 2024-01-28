@@ -1,4 +1,4 @@
-module eio-cqrs
+module github.com/qmstar0/eio-cqrs
 
 go 1.21
 

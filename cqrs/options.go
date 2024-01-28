@@ -1,16 +1,15 @@
 package cqrs
 
-import "github.com/qmstar0/eio/message"
+import (
+	"github.com/qmstar0/eio"
+	"github.com/qmstar0/eio/message"
+)
 
-type CommandBusOptionFunc func(config *CommandBusConfig) error
+type RouterBusOptionFunc func(bus *RouterBus) error
 
-type CommandBusOption interface {
-	Option(bus *CommandBusConfig) error
-}
-
-func loadOptions(config *CommandBusConfig, options []CommandBusOptionFunc) error {
+func loadOptions(bus *RouterBus, options []RouterBusOptionFunc) error {
 	for i := range options {
-		err := options[i](config)
+		err := options[i](bus)
 		if err != nil {
 			return err
 		}
@@ -20,4 +19,23 @@ func loadOptions(config *CommandBusConfig, options []CommandBusOptionFunc) error
 
 type GenerateTopicFunc func(string) string
 
-type PublishFunc func(s string, msgs ...*message.Context) error
+func defaultGenerateTopicFn(s string) string {
+	return s
+}
+
+type PublishFunc func(pub eio.Publisher, s string, msgs ...*message.Context) error
+
+func defaultPublishFn(pub eio.Publisher, s string, msgs ...*message.Context) error {
+	return pub.Publish(s, msgs...)
+}
+
+type MarshalFunc func(marshaler MessageMarshaler, v any) ([]byte, error)
+type UnMarshalFunc func(marshaler MessageMarshaler, data []byte, v any) error
+
+func defaultMarshalFn(marshaler MessageMarshaler, v any) ([]byte, error) {
+	return marshaler.Marshal(v)
+}
+
+func defaultUnMarshalFn(marshaler MessageMarshaler, data []byte, v any) error {
+	return marshaler.Unmarshal(data, v)
+}

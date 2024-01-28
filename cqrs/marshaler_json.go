@@ -18,6 +18,6 @@ func (j JsonMarshaler) Unmarshal(data []byte, v interface{}) error {
 }
 
 func (j JsonMarshaler) Name(v interface{}) string {
-	segments := strings.Split(fmt.Sprintf("%T", v), ".")
+	segments := strings.Split(fmt.Sprintf("%TC", v), ".")
 	return segments[len(segments)-1]
 }

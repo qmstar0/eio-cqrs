@@ -3,61 +3,76 @@ package cqrs
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/qmstar0/eio"
 	"github.com/qmstar0/eio/message"
 	"github.com/qmstar0/eio/processor"
 	"reflect"
 )
 
-type SubscriberConstructorFunc func(SubscriberConstructorParams) (eio.Subscriber, error)
-
-type SubscriberConstructorParams struct {
-	HandlerName string
-	Handler     Handler
+type Bus interface {
+	Publish(ctx context.Context, cmd any) error
+	WithOptions(options ...RouterBusOptionFunc) Bus
+	AddHandlers(handlers ...Handler) error
+	Run(ctx context.Context) error
+	Running() <-chan struct{}
 }
 
-type CommandBusConfig struct {
-	TopicPrefix           string
-	GenerateTopicFn       GenerateTopicFunc
-	PublishMessage        PublishFunc
-	SubscriberConstructor SubscriberConstructorFunc
+type RouterBusConfig struct {
+	GenerateTopicFn GenerateTopicFunc
+	PublishFn       PublishFunc
+
+	MarshalFn   MarshalFunc
+	UnMarshalFn UnMarshalFunc
 }
 
-func (c *CommandBusConfig) setDefaults() {
+func (c *RouterBusConfig) setDefaults() {
 	if c.GenerateTopicFn == nil {
-		c.GenerateTopicFn = func(s string) string { return fmt.Sprintf("%s%s", c.TopicPrefix, s) }
+		c.GenerateTopicFn = defaultGenerateTopicFn
+	}
+	if c.PublishFn == nil {
+		c.PublishFn = defaultPublishFn
 	}
 }
 
-func (c *CommandBusConfig) Validate() error {
+func (c *RouterBusConfig) Validate() error {
 	var err error
-	if c.SubscriberConstructor == nil {
-		return ConfigValidationError{"missing SubscriberConstructor"}
+
+	if c.GenerateTopicFn == nil {
+		err = errors.Join(err, ConfigValidationError{"missing `GenerateTopicFn`"})
 	}
+
+	if c.PublishFn == nil {
+		err = errors.Join(err, ConfigValidationError{"missing `PublishFn`"})
+	}
+
 	return err
 }
 
-type CommandBus struct {
-	//publisher eio.Publisher
+type RouterBus struct {
+	router *processor.Router
 
-	router    *processor.Router
-	marshaler MessageMarshaler
-	Config    CommandBusConfig
+	Publisher eio.Publisher
+	Marshaler MessageMarshaler
+
+	Config RouterBusConfig
 }
 
-func NewCommandBusWithOption(marshaler MessageMarshaler, opts ...CommandBusOptionFunc) (*CommandBus, error) {
+func NewBus(publisher eio.Publisher, marshaler MessageMarshaler, opts ...RouterBusOptionFunc) (Bus, error) {
+	if publisher == nil {
+		return nil, errors.New("missing publisher")
+	}
 	if marshaler == nil {
 		return nil, errors.New("missing marshaler")
 	}
 
-	bus := &CommandBus{
+	bus := &RouterBus{
+		Publisher: publisher,
 		router:    processor.NewRouter(),
-		marshaler: marshaler,
-		Config:    CommandBusConfig{},
+		Marshaler: marshaler,
+		Config:    RouterBusConfig{},
 	}
 
-	if err := loadOptions(&bus.Config, opts); err != nil {
+	if err := loadOptions(bus, opts); err != nil {
 		return nil, err
 	}
 
@@ -70,43 +85,33 @@ func NewCommandBusWithOption(marshaler MessageMarshaler, opts ...CommandBusOptio
 	return bus, nil
 }
 
-func NewCommandBus(
-	publisher eio.Publisher,
-	marshaler MessageMarshaler,
-	SubscriberConstructor SubscriberConstructorFunc,
-) (*CommandBus, error) {
-	return NewCommandBusWithOption(
-		marshaler,
-		func(config *CommandBusConfig) error {
-			config.PublishMessage = publisher.Publish
-			config.SubscriberConstructor = SubscriberConstructor
-			return nil
-		},
-	)
-}
-
-func (c CommandBus) Run(ctx context.Context) error {
+func (c RouterBus) Run(ctx context.Context) error {
 	return c.router.Run(ctx)
 }
 
-func (c CommandBus) Running() <-chan struct{} {
+func (c RouterBus) Running() <-chan struct{} {
 	return c.router.Running()
 }
 
-func (c CommandBus) WithOptions(options ...CommandBusOptionFunc) *CommandBus {
+func (c RouterBus) WithOptions(options ...RouterBusOptionFunc) Bus {
 	bus := c
 
-	if err := loadOptions(&bus.Config, options); err != nil {
+	if err := loadOptions(&bus, options); err != nil {
+		panic(err)
+	}
+
+	bus.Config.setDefaults()
+
+	if err := bus.Config.Validate(); err != nil {
 		panic(err)
 	}
 
 	return &bus
 }
 
-func (c CommandBus) AddHandlers(handlers ...Handler) error {
-
+func (c RouterBus) AddHandlers(handlers ...Handler) error {
 	for _, handler := range handlers {
-		if err := c.addHandlerToRouter(c.router, handler); err != nil {
+		if err := c.addHandlerToRouter(handler); err != nil {
 			return err
 		}
 	}
@@ -114,7 +119,7 @@ func (c CommandBus) AddHandlers(handlers ...Handler) error {
 	return nil
 }
 
-func (c CommandBus) Publish(ctx context.Context, cmd any) error {
+func (c RouterBus) Publish(ctx context.Context, cmd any) error {
 	var err error
 
 	msg, err := c.newMessage(ctx, cmd)
@@ -122,30 +127,30 @@ func (c CommandBus) Publish(ctx context.Context, cmd any) error {
 		return err
 	}
 
-	cmdName := c.marshaler.Name(cmd)
+	cmdName := c.Marshaler.Name(cmd)
 
 	topic := c.Config.GenerateTopicFn(cmdName)
 
-	if err = c.Config.PublishMessage(topic, msg); err != nil {
+	if err = c.Config.PublishFn(c.Publisher, topic, msg); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (c CommandBus) newMessage(ctx context.Context, command any) (*message.Context, error) {
+func (c RouterBus) newMessage(ctx context.Context, command any) (*message.Context, error) {
 	var err error
 	msg := message.WithContext(eio.NewUUID(), ctx)
-	msg.Payload, err = c.marshaler.Marshal(command)
+	msg.Payload, err = c.Marshaler.Marshal(command)
 	if err != nil {
 		return nil, err
 	}
 	return msg, nil
 }
 
-func (c CommandBus) addHandlerToRouter(r *processor.Router, handler Handler) error {
+func (c RouterBus) addHandlerToRouter(handler Handler) error {
 	handlerName := handler.Name()
-	commandName := c.marshaler.Name(handler.SubscribedTo())
+	commandName := c.Marshaler.Name(handler.SubscribedTo())
 	topic := c.Config.GenerateTopicFn(commandName)
 
 	handlerFunc, err := c.handlerToHandlerFunc(handler)
@@ -153,24 +158,20 @@ func (c CommandBus) addHandlerToRouter(r *processor.Router, handler Handler) err
 		return err
 	}
 
-	sub, err := c.Config.SubscriberConstructor(SubscriberConstructorParams{
-		HandlerName: handlerName,
-		Handler:     handler,
-	})
 	if err != nil {
 		return err
 	}
 
-	r.AddHandler(
+	c.router.AddHandler(
 		handlerName,
 		topic,
-		sub,
+		handler.Subscriber(),
 		handlerFunc,
 	)
 	return nil
 }
 
-func (c CommandBus) handlerToHandlerFunc(handler Handler) (processor.HandlerFunc, error) {
+func (c RouterBus) handlerToHandlerFunc(handler Handler) (processor.HandlerFunc, error) {
 	to := handler.SubscribedTo()
 	if reflect.ValueOf(to).Kind() != reflect.Ptr {
 		return nil, SubscribedToTypeError{message: to}
@@ -179,7 +180,7 @@ func (c CommandBus) handlerToHandlerFunc(handler Handler) (processor.HandlerFunc
 
 		cmd := handler.SubscribedTo()
 
-		if err := c.marshaler.Unmarshal(msg.Payload, cmd); err != nil {
+		if err := c.Marshaler.Unmarshal(msg.Payload, cmd); err != nil {
 			return nil, err
 		}
 
