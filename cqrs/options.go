@@ -3,6 +3,7 @@ package cqrs
 import (
 	"github.com/qmstar0/eio"
 	"github.com/qmstar0/eio/message"
+	"github.com/qmstar0/eio/processor"
 )
 
 type RouterBusOptionFunc func(bus *RouterBus) error
@@ -23,19 +24,16 @@ func defaultGenerateTopicFn(s string) string {
 	return s
 }
 
-type PublishFunc func(pub eio.Publisher, s string, msgs ...*message.Context) error
+type PublishFunc func(pub eio.Publisher, s string, msg *message.Context) error
 
-func defaultPublishFn(pub eio.Publisher, s string, msgs ...*message.Context) error {
-	return pub.Publish(s, msgs...)
+func defaultPublishFn(pub eio.Publisher, s string, msg *message.Context) error {
+	return pub.Publish(s, msg)
 }
 
-type MarshalFunc func(marshaler MessageMarshaler, v any) ([]byte, error)
-type UnMarshalFunc func(marshaler MessageMarshaler, data []byte, v any) error
+type HandleMessageFunc processor.HandlerMiddleware
 
-func defaultMarshalFn(marshaler MessageMarshaler, v any) ([]byte, error) {
-	return marshaler.Marshal(v)
-}
-
-func defaultUnMarshalFn(marshaler MessageMarshaler, data []byte, v any) error {
-	return marshaler.Unmarshal(data, v)
+func defaultHandleMessageFn(fn processor.HandlerFunc) processor.HandlerFunc {
+	return func(msg *message.Context) ([]*message.Context, error) {
+		return fn(msg)
+	}
 }

@@ -21,8 +21,7 @@ type RouterBusConfig struct {
 	GenerateTopicFn GenerateTopicFunc
 	PublishFn       PublishFunc
 
-	MarshalFn   MarshalFunc
-	UnMarshalFn UnMarshalFunc
+	HandleMessageFn []HandleMessageFunc
 }
 
 func (c *RouterBusConfig) setDefaults() {
@@ -32,19 +31,13 @@ func (c *RouterBusConfig) setDefaults() {
 	if c.PublishFn == nil {
 		c.PublishFn = defaultPublishFn
 	}
+	if c.HandleMessageFn == nil {
+		c.HandleMessageFn = append([]HandleMessageFunc(nil), defaultHandleMessageFn)
+	}
 }
 
 func (c *RouterBusConfig) Validate() error {
 	var err error
-
-	if c.GenerateTopicFn == nil {
-		err = errors.Join(err, ConfigValidationError{"missing `GenerateTopicFn`"})
-	}
-
-	if c.PublishFn == nil {
-		err = errors.Join(err, ConfigValidationError{"missing `PublishFn`"})
-	}
-
 	return err
 }
 
@@ -105,7 +98,6 @@ func (c RouterBus) WithOptions(options ...RouterBusOptionFunc) Bus {
 	if err := bus.Config.Validate(); err != nil {
 		panic(err)
 	}
-
 	return &bus
 }
 
@@ -153,13 +145,13 @@ func (c RouterBus) addHandlerToRouter(handler Handler) error {
 	commandName := c.Marshaler.Name(handler.SubscribedTo())
 	topic := c.Config.GenerateTopicFn(commandName)
 
-	handlerFunc, err := c.handlerToHandlerFunc(handler)
+	handlerFunc, err := c.handlerToHandleFunc(handler)
 	if err != nil {
 		return err
 	}
 
-	if err != nil {
-		return err
+	for i := range c.Config.HandleMessageFn {
+		handlerFunc = c.Config.HandleMessageFn[i](handlerFunc)
 	}
 
 	c.router.AddHandler(
@@ -170,12 +162,12 @@ func (c RouterBus) addHandlerToRouter(handler Handler) error {
 	)
 	return nil
 }
-
-func (c RouterBus) handlerToHandlerFunc(handler Handler) (processor.HandlerFunc, error) {
+func (c RouterBus) handlerToHandleFunc(handler Handler) (processor.HandlerFunc, error) {
 	to := handler.SubscribedTo()
-	if reflect.ValueOf(to).Kind() != reflect.Ptr {
+	if !isPointerType(to) {
 		return nil, SubscribedToTypeError{message: to}
 	}
+
 	return func(msg *message.Context) ([]*message.Context, error) {
 
 		cmd := handler.SubscribedTo()
@@ -191,4 +183,8 @@ func (c RouterBus) handlerToHandlerFunc(handler Handler) (processor.HandlerFunc,
 
 		return nil, nil
 	}, nil
+}
+
+func isPointerType(v any) bool {
+	return reflect.ValueOf(v).Kind() == reflect.Ptr
 }
