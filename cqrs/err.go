@@ -2,22 +2,6 @@ package cqrs
 
 import "fmt"
 
-type DuplicateHandlerError struct {
-	message string
-}
-
-func (e DuplicateHandlerError) Error() string {
-	return "重复添加了handler:" + e.message
-}
-
-type ConfigValidationError struct {
-	message string
-}
-
-func (e ConfigValidationError) Error() string {
-	return "配置验证错误: " + e.message
-}
-
 type SubscribedToTypeError struct {
 	message any
 }

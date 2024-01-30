@@ -10,41 +10,24 @@ import (
 )
 
 type Bus interface {
-	Publish(ctx context.Context, cmd any) error
-	WithOptions(options ...RouterBusOptionFunc) Bus
+	Publish(ctx context.Context, cmd any, callbacks ...Callback) error
 	AddHandlers(handlers ...Handler) error
 	Run(ctx context.Context) error
 	Running() <-chan struct{}
 }
 
 type RouterBusConfig struct {
-	GenerateTopicFn GenerateTopicFunc
-	PublishFn       PublishFunc
+	OnGenerateTopic GenerateTopicFunc
+	OnPublish       []func(PublishFunc) PublishFunc
 
-	HandleMessageFn []HandleMessageFunc
-}
-
-func (c *RouterBusConfig) setDefaults() {
-	if c.GenerateTopicFn == nil {
-		c.GenerateTopicFn = defaultGenerateTopicFn
-	}
-	if c.PublishFn == nil {
-		c.PublishFn = defaultPublishFn
-	}
-	if c.HandleMessageFn == nil {
-		c.HandleMessageFn = append([]HandleMessageFunc(nil), defaultHandleMessageFn)
-	}
-}
-
-func (c *RouterBusConfig) Validate() error {
-	var err error
-	return err
+	OnHandleMessage []func(processor.HandlerFunc) processor.HandlerFunc
 }
 
 type RouterBus struct {
-	router *processor.Router
+	Router *processor.Router
 
-	Publisher eio.Publisher
+	PublishMessageFn PublishFunc
+
 	Marshaler MessageMarshaler
 
 	Config RouterBusConfig
@@ -52,26 +35,24 @@ type RouterBus struct {
 
 func NewBus(publisher eio.Publisher, marshaler MessageMarshaler, opts ...RouterBusOptionFunc) (Bus, error) {
 	if publisher == nil {
-		return nil, errors.New("missing publisher")
+		return nil, errors.New("missing Publisher")
 	}
 	if marshaler == nil {
 		return nil, errors.New("missing marshaler")
 	}
 
 	bus := &RouterBus{
-		Publisher: publisher,
-		router:    processor.NewRouter(),
-		Marshaler: marshaler,
-		Config:    RouterBusConfig{},
+		PublishMessageFn: defaultPublishMessageFn(publisher),
+		Router:           processor.NewRouter(),
+		Marshaler:        marshaler,
+		Config: RouterBusConfig{
+			OnGenerateTopic: defaultGenerateTopicFn,
+			OnPublish:       make([]func(PublishFunc) PublishFunc, 0),
+			OnHandleMessage: make([]func(processor.HandlerFunc) processor.HandlerFunc, 0),
+		},
 	}
 
 	if err := loadOptions(bus, opts); err != nil {
-		return nil, err
-	}
-
-	bus.Config.setDefaults()
-
-	if err := bus.Config.Validate(); err != nil {
 		return nil, err
 	}
 
@@ -79,26 +60,11 @@ func NewBus(publisher eio.Publisher, marshaler MessageMarshaler, opts ...RouterB
 }
 
 func (c RouterBus) Run(ctx context.Context) error {
-	return c.router.Run(ctx)
+	return c.Router.Run(ctx)
 }
 
 func (c RouterBus) Running() <-chan struct{} {
-	return c.router.Running()
-}
-
-func (c RouterBus) WithOptions(options ...RouterBusOptionFunc) Bus {
-	bus := c
-
-	if err := loadOptions(&bus, options); err != nil {
-		panic(err)
-	}
-
-	bus.Config.setDefaults()
-
-	if err := bus.Config.Validate(); err != nil {
-		panic(err)
-	}
-	return &bus
+	return c.Router.Running()
 }
 
 func (c RouterBus) AddHandlers(handlers ...Handler) error {
@@ -111,7 +77,7 @@ func (c RouterBus) AddHandlers(handlers ...Handler) error {
 	return nil
 }
 
-func (c RouterBus) Publish(ctx context.Context, cmd any) error {
+func (c RouterBus) Publish(ctx context.Context, cmd any, callbacks ...Callback) error {
 	var err error
 
 	msg, err := c.newMessage(ctx, cmd)
@@ -119,11 +85,15 @@ func (c RouterBus) Publish(ctx context.Context, cmd any) error {
 		return err
 	}
 
+	for _, callback := range callbacks {
+		context.AfterFunc(msg, func() { callback(msg) })
+	}
+
 	cmdName := c.Marshaler.Name(cmd)
 
-	topic := c.Config.GenerateTopicFn(cmdName)
+	topic := c.Config.OnGenerateTopic(cmdName)
 
-	if err = c.Config.PublishFn(c.Publisher, topic, msg); err != nil {
+	if err = c.PublishMessageFn(topic, msg); err != nil {
 		return err
 	}
 
@@ -143,18 +113,18 @@ func (c RouterBus) newMessage(ctx context.Context, command any) (*message.Contex
 func (c RouterBus) addHandlerToRouter(handler Handler) error {
 	handlerName := handler.Name()
 	commandName := c.Marshaler.Name(handler.SubscribedTo())
-	topic := c.Config.GenerateTopicFn(commandName)
+	topic := c.Config.OnGenerateTopic(commandName)
 
 	handlerFunc, err := c.handlerToHandleFunc(handler)
 	if err != nil {
 		return err
 	}
 
-	for i := range c.Config.HandleMessageFn {
-		handlerFunc = c.Config.HandleMessageFn[i](handlerFunc)
+	for i := range c.Config.OnHandleMessage {
+		handlerFunc = c.Config.OnHandleMessage[i](handlerFunc)
 	}
 
-	c.router.AddHandler(
+	c.Router.AddHandler(
 		handlerName,
 		topic,
 		handler.Subscriber(),
@@ -187,4 +157,13 @@ func (c RouterBus) handlerToHandleFunc(handler Handler) (processor.HandlerFunc, 
 
 func isPointerType(v any) bool {
 	return reflect.ValueOf(v).Kind() == reflect.Ptr
+}
+func defaultPublishMessageFn(publisher eio.Publisher) PublishFunc {
+	return func(s string, msg *message.Context) error {
+		return publisher.Publish(s, msg)
+	}
+}
+
+func defaultGenerateTopicFn(s string) string {
+	return s
 }

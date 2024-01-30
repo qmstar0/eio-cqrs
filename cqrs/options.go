@@ -1,7 +1,6 @@
 package cqrs
 
 import (
-	"github.com/qmstar0/eio"
 	"github.com/qmstar0/eio/message"
 	"github.com/qmstar0/eio/processor"
 )
@@ -20,20 +19,8 @@ func loadOptions(bus *RouterBus, options []RouterBusOptionFunc) error {
 
 type GenerateTopicFunc func(string) string
 
-func defaultGenerateTopicFn(s string) string {
-	return s
-}
-
-type PublishFunc func(pub eio.Publisher, s string, msg *message.Context) error
-
-func defaultPublishFn(pub eio.Publisher, s string, msg *message.Context) error {
-	return pub.Publish(s, msg)
-}
+type PublishFunc func(s string, msg *message.Context) error
 
 type HandleMessageFunc processor.HandlerMiddleware
 
-func defaultHandleMessageFn(fn processor.HandlerFunc) processor.HandlerFunc {
-	return func(msg *message.Context) ([]*message.Context, error) {
-		return fn(msg)
-	}
-}
+type Callback func(msg *message.Context)
