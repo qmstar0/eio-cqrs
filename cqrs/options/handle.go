@@ -8,15 +8,15 @@ import (
 //
 //	options.OnHandle(func (fn processor.HandlerFunc) processor.HandlerFunc {
 //		return func(msg *message.Context) ([]*message.Context, error) {
-//			//What to do before processing
+//			t.Log("before processing log msg:", msg)
 //			msgs, err := fn(msg)
-//			//What to do after processing
+//			t.Log("after processing log msg:", msg)
 //			return msgs, err
 //		}
 //	})
 func OnHandle(fn cqrs.HandleMessageFunc) cqrs.RouterBusOptionFunc {
 	return func(bus *cqrs.RouterBus) error {
-		bus.Config.HandleMessageFn = append(bus.Config.HandleMessageFn, fn)
+		bus.Config.OnHandleMessage = append(bus.Config.OnHandleMessage, fn)
 		return nil
 	}
 }

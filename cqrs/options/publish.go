@@ -1,20 +1,22 @@
 package options
 
 import (
-	"github.com/qmstar0/eio"
 	"github.com/qmstar0/eio-cqrs/cqrs"
 )
 
+// OnPublish
+//
+//	options.OnPublish(func (publishFunc cqrs.PublishFunc) cqrs.PublishFunc {
+//		return func(s string, msg *message.Context) error {
+//			t.Log("before publish log msg:", msg)
+//			err := publishFunc(s, msg)
+//			t.Log("before publish log msg:", msg)
+//			return err
+//		}
+//	})
 func OnPublish(fn func(cqrs.PublishFunc) cqrs.PublishFunc) cqrs.RouterBusOptionFunc {
 	return func(bus *cqrs.RouterBus) error {
-		bus.Config.PublishFn = fn(bus.Config.PublishFn)
-		return nil
-	}
-}
-
-func SetPublish(publisher eio.Publisher) cqrs.RouterBusOptionFunc {
-	return func(bus *cqrs.RouterBus) error {
-		bus.Publisher = publisher
+		bus.PublishMessageFn = fn(bus.PublishMessageFn)
 		return nil
 	}
 }
