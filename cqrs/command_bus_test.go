@@ -2,6 +2,7 @@ package cqrs_test
 
 import (
 	"context"
+	"errors"
 	"github.com/qmstar0/eio-cqrs/cqrs"
 	"github.com/qmstar0/eio-cqrs/cqrs/options"
 	"github.com/qmstar0/eio/message"
@@ -43,6 +44,26 @@ func TestNewBus(t *testing.T) {
 
 	pubsub := gopubsub.NewGoPubsub("test", gopubsub.GoPubsubConfig{})
 
+	bus, err := cqrs.NewBus(pubsub, cqrs.JsonMarshaler{})
+	assert.NoError(t, err)
+
+	err = bus.AddHandlers(cqrs.NewHandler[Cmd]("handler", pubsub, func(ctx context.Context, v *Cmd) error {
+		t.Logf("%s", v)
+		return nil
+	}))
+	assert.NoError(t, err)
+
+	go publishMessage(ctx, bus)
+
+	err = bus.Run(ctx)
+	assert.NoError(t, err)
+}
+
+func TestNewBusOption(t *testing.T) {
+	ctx := getTimeoutCtx()
+
+	pubsub := gopubsub.NewGoPubsub("test", gopubsub.GoPubsubConfig{})
+
 	bus, err := cqrs.NewBus(pubsub, cqrs.JsonMarshaler{},
 		options.OnGenerateTopic(func(s string) string {
 			return "test1_" + s
@@ -71,6 +92,24 @@ func TestNewBus(t *testing.T) {
 			}
 		}),
 	)
+	err = bus.AddHandlers(cqrs.NewHandler[Cmd]("handler", pubsub, func(ctx context.Context, v *Cmd) error {
+		t.Logf("%s", v)
+		return nil
+	}))
+	assert.NoError(t, err)
+
+	go publishMessage(ctx, bus)
+
+	err = bus.Run(ctx)
+	assert.NoError(t, err)
+}
+
+func TestBusPublish_Callback_ACK(t *testing.T) {
+	ctx := getTimeoutCtx()
+
+	pubsub := gopubsub.NewGoPubsub("test", gopubsub.GoPubsubConfig{})
+
+	bus, err := cqrs.NewBus(pubsub, cqrs.JsonMarshaler{})
 	assert.NoError(t, err)
 
 	err = bus.AddHandlers(cqrs.NewHandler[Cmd]("handler", pubsub, func(ctx context.Context, v *Cmd) error {
@@ -79,7 +118,63 @@ func TestNewBus(t *testing.T) {
 	}))
 	assert.NoError(t, err)
 
-	go publishMessage(ctx, bus)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				err := bus.Publish(ctx, &Cmd{Name: "box"}, func(msg *message.Context) {
+					err := msg.Err()
+					assert.Error(t, err)
+					assert.Equal(t, err, message.Done)
+				})
+				if err != nil {
+					panic(err)
+				}
+				time.Sleep(time.Millisecond * 300)
+			}
+		}
+	}()
+
+	err = bus.Run(ctx)
+	assert.NoError(t, err)
+}
+func TestBusPublish_Callback_NACK(t *testing.T) {
+	ctx := getTimeoutCtx()
+
+	pubsub := gopubsub.NewGoPubsub("test", gopubsub.GoPubsubConfig{})
+
+	bus, err := cqrs.NewBus(pubsub, cqrs.JsonMarshaler{})
+	assert.NoError(t, err)
+
+	testErr := errors.New("test")
+
+	err = bus.AddHandlers(cqrs.NewHandler[Cmd]("handler", pubsub, func(ctx context.Context, v *Cmd) error {
+		t.Logf("%s", v)
+		return testErr
+	}))
+	assert.NoError(t, err)
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				err := bus.Publish(ctx, &Cmd{Name: "box"}, func(msg *message.Context) {
+					err := msg.Err()
+					assert.Error(t, err)
+					assert.NotEqual(t, err, message.Done)
+					assert.Equal(t, testErr, errors.Unwrap(err))
+				})
+				if err != nil {
+					panic(err)
+				}
+				time.Sleep(time.Millisecond * 300)
+			}
+		}
+	}()
 
 	err = bus.Run(ctx)
 	assert.NoError(t, err)
