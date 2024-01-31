@@ -16,7 +16,7 @@ import (
 //	})
 func OnPublish(fn func(cqrs.PublishFunc) cqrs.PublishFunc) cqrs.RouterBusOptionFunc {
 	return func(bus *cqrs.RouterBus) error {
-		bus.PublishMessageFn = fn(bus.PublishMessageFn)
+		bus.Config.PublishMessageFn = fn(bus.Config.PublishMessageFn)
 		return nil
 	}
 }

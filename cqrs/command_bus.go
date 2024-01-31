@@ -17,16 +17,14 @@ type Bus interface {
 }
 
 type RouterBusConfig struct {
-	OnGenerateTopic GenerateTopicFunc
-	OnPublish       []func(PublishFunc) PublishFunc
+	OnGenerateTopic  GenerateTopicFunc
+	PublishMessageFn PublishFunc
 
 	OnHandleMessage []func(processor.HandlerFunc) processor.HandlerFunc
 }
 
 type RouterBus struct {
 	Router *processor.Router
-
-	PublishMessageFn PublishFunc
 
 	Marshaler MessageMarshaler
 
@@ -42,13 +40,12 @@ func NewBus(publisher eio.Publisher, marshaler MessageMarshaler, opts ...RouterB
 	}
 
 	bus := &RouterBus{
-		PublishMessageFn: defaultPublishMessageFn(publisher),
-		Router:           processor.NewRouter(),
-		Marshaler:        marshaler,
+		Router:    processor.NewRouter(),
+		Marshaler: marshaler,
 		Config: RouterBusConfig{
-			OnGenerateTopic: defaultGenerateTopicFn,
-			OnPublish:       make([]func(PublishFunc) PublishFunc, 0),
-			OnHandleMessage: make([]func(processor.HandlerFunc) processor.HandlerFunc, 0),
+			OnGenerateTopic:  defaultGenerateTopicFn,
+			PublishMessageFn: defaultPublishMessageFn(publisher),
+			OnHandleMessage:  make([]func(processor.HandlerFunc) processor.HandlerFunc, 0),
 		},
 	}
 
@@ -85,15 +82,13 @@ func (c RouterBus) Publish(ctx context.Context, cmd any, callbacks ...Callback) 
 		return err
 	}
 
-	for _, callback := range callbacks {
-		context.AfterFunc(msg, func() { callback(msg) })
-	}
+	c.setCallback(msg, callbacks)
 
 	cmdName := c.Marshaler.Name(cmd)
 
 	topic := c.Config.OnGenerateTopic(cmdName)
 
-	if err = c.PublishMessageFn(topic, msg); err != nil {
+	if err = c.Config.PublishMessageFn(topic, msg); err != nil {
 		return err
 	}
 
@@ -132,6 +127,19 @@ func (c RouterBus) addHandlerToRouter(handler Handler) error {
 	)
 	return nil
 }
+
+func (RouterBus) setCallback(msg *message.Context, callbacks []Callback) {
+
+	for _, callback := range callbacks {
+		afterFn := func() {
+			if errors.Is(msg.Err(), message.Done) {
+				callback(msg)
+			}
+		}
+		_ = context.AfterFunc(msg, afterFn)
+	}
+}
+
 func (c RouterBus) handlerToHandleFunc(handler Handler) (processor.HandlerFunc, error) {
 	to := handler.SubscribedTo()
 	if !isPointerType(to) {

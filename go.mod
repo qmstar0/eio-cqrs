@@ -3,7 +3,7 @@ module github.com/qmstar0/eio-cqrs
 go 1.21
 
 require (
-	github.com/qmstar0/eio v1.1.4
+	github.com/qmstar0/eio v1.1.5
 	github.com/stretchr/testify v1.8.4
 )
 
