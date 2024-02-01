@@ -129,15 +129,16 @@ func (c RouterBus) addHandlerToRouter(handler Handler) error {
 }
 
 func (RouterBus) setCallback(msg *message.Context, callbacks []Callback) {
-
-	for _, callback := range callbacks {
-		afterFn := func() {
-			if errors.Is(msg.Err(), message.Done) {
-				callback(msg)
+	if len(callbacks) <= 0 {
+		return
+	}
+	context.AfterFunc(msg, func() {
+		if errors.Is(msg.Err(), message.Done) {
+			for i := range callbacks {
+				callbacks[i](msg)
 			}
 		}
-		_ = context.AfterFunc(msg, afterFn)
-	}
+	})
 }
 
 func (c RouterBus) handlerToHandleFunc(handler Handler) (processor.HandlerFunc, error) {
