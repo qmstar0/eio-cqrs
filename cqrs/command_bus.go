@@ -133,10 +133,8 @@ func (RouterBus) setCallback(msg *message.Context, callbacks []Callback) {
 		return
 	}
 	context.AfterFunc(msg, func() {
-		if errors.Is(msg.Err(), message.Done) {
-			for i := range callbacks {
-				callbacks[i](msg)
-			}
+		for i := range callbacks {
+			callbacks[i](msg)
 		}
 	})
 }
