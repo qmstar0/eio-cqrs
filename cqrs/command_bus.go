@@ -10,7 +10,7 @@ import (
 )
 
 type Bus interface {
-	Publish(ctx context.Context, cmd any, callbacks ...Callback) error
+	Publish(ctx context.Context, data any, callbacks ...Callback) error
 	AddHandlers(handlers ...Handler) error
 	Run(ctx context.Context) error
 	Running() <-chan struct{}
