@@ -17,7 +17,7 @@ type RouterBus interface {
 	WithPublisher(publisher eio.Publisher, middlewares ...PublishMiddleware) PublishBus
 }
 
-type Router struct {
+type handlerRouter struct {
 	AddHandlerToRouterFn func(handlers Handler) error
 	marshaler            MessageMarshaler
 }
@@ -40,13 +40,13 @@ func NewRouterBus(router *processor.Router, marshaler MessageMarshaler, middlewa
 		router.AddHandler(handler.Name(), marshaler.Name(handler.SubscribedTo()), handler.Subscriber(), handleFn)
 		return nil
 	}
-	return &Router{
+	return &handlerRouter{
 		AddHandlerToRouterFn: addHandlerToRouterFn,
 		marshaler:            marshaler,
 	}
 }
 
-func (r *Router) WithPublisher(publisher eio.Publisher, middlewares ...PublishMiddleware) PublishBus {
+func (r *handlerRouter) WithPublisher(publisher eio.Publisher, middlewares ...PublishMiddleware) PublishBus {
 	if publisher == nil {
 		panic("missing publisher")
 	}
@@ -54,7 +54,7 @@ func (r *Router) WithPublisher(publisher eio.Publisher, middlewares ...PublishMi
 		return publisher.Publish(topic, msg)
 	}, middlewares)
 
-	return PublishingBus(func(ctx context.Context, cmd any, callbacks []Callback) error {
+	return publishingBus(func(ctx context.Context, cmd any, callbacks []Callback) error {
 		msg, err := r.marshaler.Marshal(ctx, cmd)
 		if err != nil {
 			return err
@@ -68,13 +68,13 @@ func (r *Router) WithPublisher(publisher eio.Publisher, middlewares ...PublishMi
 	})
 }
 
-func (r *Router) AddHandlers(handlers ...Handler) error {
+func (r *handlerRouter) AddHandlers(handlers ...Handler) error {
 	var err error
 	for i := range handlers {
 		handler := handlers[i]
 		to := handler.SubscribedTo()
 		if !isPointerType(to) {
-			return SubscribedToTypeError{message: to}
+			return subscribedToTypeError{message: to}
 		}
 
 		if err = r.AddHandlerToRouterFn(handler); err != nil {
@@ -84,9 +84,9 @@ func (r *Router) AddHandlers(handlers ...Handler) error {
 	return nil
 }
 
-type PublishingBus func(ctx context.Context, data any, callbacks []Callback) error
+type publishingBus func(ctx context.Context, data any, callbacks []Callback) error
 
-func (f PublishingBus) Publish(ctx context.Context, data any, callbacks ...Callback) error {
+func (f publishingBus) Publish(ctx context.Context, data any, callbacks ...Callback) error {
 	return f(ctx, data, callbacks)
 }
 
@@ -125,10 +125,10 @@ func isPointerType(v any) bool {
 	return reflect.ValueOf(v).Kind() == reflect.Ptr
 }
 
-type SubscribedToTypeError struct {
+type subscribedToTypeError struct {
 	message any
 }
 
-func (e SubscribedToTypeError) Error() string {
+func (e subscribedToTypeError) Error() string {
 	return fmt.Sprintf("类型错误: %T 应该为`指针`", e.message)
 }
