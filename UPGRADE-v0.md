@@ -20,6 +20,11 @@
 
 修改了部分细节
 
+### v0.2.2
+
+新增中间件`WaitAndGetHandleErr()`，该方法可以获取handler在处理后返回的错误，
+通过`err := bus.Publish(...)`的方式捕获handler主动返回的错误
+
 ## 2/3 v0.1.0
 
 **已重新设计该项目**
