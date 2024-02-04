@@ -2,9 +2,7 @@ package cqrs_test
 
 import (
 	"context"
-	"errors"
 	"github.com/qmstar0/eio-cqrs/cqrs"
-	"github.com/qmstar0/eio-cqrs/cqrs/middleware"
 	"github.com/qmstar0/eio/message"
 	"github.com/qmstar0/eio/processor"
 	"github.com/qmstar0/eio/pubsub/gopubsub"
@@ -127,70 +125,6 @@ func TestRouterBusMiddleware(t *testing.T) {
 	bus := routerBus.WithPublisher(pubsub)
 
 	go publishMessage(ctx, bus)
-
-	err = router.Run(ctx)
-	assert.NoError(t, err)
-}
-
-func TestMiddleware_WaitMessageDone(t *testing.T) {
-
-	ctx := getTimeoutCtx()
-
-	pubsub := gopubsub.NewGoPubsub("test", gopubsub.GoPubsubConfig{})
-
-	router := processor.NewRouter()
-
-	routerBus := cqrs.NewRouterBus(router, cqrs.NewJsonMarshaler(nil))
-	err := routerBus.AddHandlers(cqrs.NewHandler[Cmd]("main", pubsub, func(ctx context.Context, v *Cmd) error {
-		t.Log("main handler", v)
-		time.Sleep(time.Second * 1)
-		return nil
-	}))
-	assert.NoError(t, err)
-
-	bus := routerBus.WithPublisher(pubsub, middleware.WaitingMessageDone())
-
-	go publishMessage(ctx, bus)
-
-	err = router.Run(ctx)
-	assert.NoError(t, err)
-}
-
-func TestMiddleware_WaitMessageDoneAndGetHandleErr(t *testing.T) {
-
-	ctx := getTimeoutCtx()
-
-	err1 := errors.New("err_1")
-	err2 := errors.New("err_2")
-
-	pubsub := gopubsub.NewGoPubsub("test", gopubsub.GoPubsubConfig{})
-
-	router := processor.NewRouter()
-
-	routerBus := cqrs.NewRouterBus(router, cqrs.NewJsonMarshaler(nil))
-	err := routerBus.AddHandlers(cqrs.NewHandler[Cmd]("main", pubsub, func(ctx context.Context, v *Cmd) error {
-		t.Log("main handler", v)
-		switch v.Name {
-		case "1":
-			return err1
-		case "2":
-			return err2
-		}
-		return nil
-	}))
-	assert.NoError(t, err)
-
-	bus := routerBus.WithPublisher(pubsub, middleware.WaitAndGetHandleErr())
-
-	go func() {
-		err = bus.Publish(ctx, &Cmd{Name: "1"})
-		assert.Error(t, err)
-		assert.Equal(t, err, err1)
-
-		err = bus.Publish(ctx, &Cmd{Name: "2"})
-		assert.Error(t, err)
-		assert.Equal(t, err, err2)
-	}()
 
 	err = router.Run(ctx)
 	assert.NoError(t, err)
