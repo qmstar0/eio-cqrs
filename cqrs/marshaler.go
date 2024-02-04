@@ -1,9 +1,14 @@
 package cqrs
 
+import (
+	"context"
+	"github.com/qmstar0/eio/message"
+)
+
 type MessageMarshaler interface {
-	Marshal(v interface{}) ([]byte, error)
+	Marshal(ctx context.Context, v any) (*message.Context, error)
 
-	Unmarshal(data []byte, v interface{}) error
+	Unmarshal(msg *message.Context, v any) error
 
-	Name(v interface{}) string
+	Name(v any) string
 }

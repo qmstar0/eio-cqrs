@@ -21,7 +21,7 @@ func getTimeoutCtx() context.Context {
 	return timeout
 }
 
-func publishMessage(ctx context.Context, bus cqrs.Bus) {
+func publishMessage(ctx context.Context, bus cqrs.PublishBus) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -36,17 +36,18 @@ func publishMessage(ctx context.Context, bus cqrs.Bus) {
 	}
 }
 
-func TestNewBus(t *testing.T) {
+func TestNewRouterBus(t *testing.T) {
 
 	ctx := getTimeoutCtx()
 
 	pubsub := gopubsub.NewGoPubsub("test", gopubsub.GoPubsubConfig{})
 
-	bus := cqrs.NewBus(pubsub, cqrs.NewMessageCodec(cqrs.JsonMarshaler{}))
-
 	router := processor.NewRouter()
 
-	routerBus := bus.WithRouter(router)
+	routerBus := cqrs.NewRouterBus(router, cqrs.NewJsonMarshaler(nil))
+
+	bus := routerBus.WithPublisher(pubsub)
+
 	err := routerBus.AddHandlers(cqrs.NewHandler[Cmd]("main", pubsub, func(ctx context.Context, v *Cmd) error {
 		t.Log("main handler", v)
 		return nil
@@ -59,13 +60,22 @@ func TestNewBus(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestBus_PublishOption(t *testing.T) {
+func TestPublishBusMiddleware(t *testing.T) {
 
 	ctx := getTimeoutCtx()
 
 	pubsub := gopubsub.NewGoPubsub("test", gopubsub.GoPubsubConfig{})
 
-	bus := cqrs.NewBus(pubsub, cqrs.NewMessageCodec(cqrs.JsonMarshaler{}),
+	router := processor.NewRouter()
+
+	routerBus := cqrs.NewRouterBus(router, cqrs.NewJsonMarshaler(nil))
+	err := routerBus.AddHandlers(cqrs.NewHandler[Cmd]("main", pubsub, func(ctx context.Context, v *Cmd) error {
+		t.Log("main handler", v)
+		return nil
+	}))
+	assert.NoError(t, err)
+
+	bus := routerBus.WithPublisher(pubsub,
 		func(publishFunc cqrs.PublishFunc) cqrs.PublishFunc {
 			return func(topic string, msg *message.Context) error {
 				t.Log("publish1 option before", topic, msg)
@@ -84,38 +94,59 @@ func TestBus_PublishOption(t *testing.T) {
 		},
 	)
 
+	go publishMessage(ctx, bus)
+
+	err = router.Run(ctx)
+	assert.NoError(t, err)
+}
+func TestMiddleware_WaitMessageDone(t *testing.T) {
+
+	ctx := getTimeoutCtx()
+
+	pubsub := gopubsub.NewGoPubsub("test", gopubsub.GoPubsubConfig{})
+
 	router := processor.NewRouter()
 
-	routerBus := bus.WithRouter(router)
+	routerBus := cqrs.NewRouterBus(router, cqrs.NewJsonMarshaler(nil))
 	err := routerBus.AddHandlers(cqrs.NewHandler[Cmd]("main", pubsub, func(ctx context.Context, v *Cmd) error {
 		t.Log("main handler", v)
+		time.Sleep(time.Second * 1)
 		return nil
 	}))
 	assert.NoError(t, err)
+
+	bus := routerBus.WithPublisher(pubsub, middleware.WaitingMessageDone())
 
 	go publishMessage(ctx, bus)
 
 	err = router.Run(ctx)
 	assert.NoError(t, err)
 }
-func TestBus_PublishOption_WaitingMessageDone(t *testing.T) {
-
+func TestRouterBusMiddleware(t *testing.T) {
 	ctx := getTimeoutCtx()
 
 	pubsub := gopubsub.NewGoPubsub("test", gopubsub.GoPubsubConfig{})
 
-	bus := cqrs.NewBus(pubsub, cqrs.NewMessageCodec(cqrs.JsonMarshaler{}), middleware.WaitingMessageDone())
-
 	router := processor.NewRouter()
 
-	routerBus := bus.WithRouter(router)
+	routerBus := cqrs.NewRouterBus(router, cqrs.NewJsonMarshaler(nil),
+		func(fn processor.HandlerFunc) processor.HandlerFunc {
+			return func(msg *message.Context) ([]*message.Context, error) {
+				msg.SetValue(1, 1)
+				t.Log("handler middleware before", msg)
+				msgs, err := fn(msg)
+				assert.Equal(t, msg.Value(1), 1)
+				t.Log("handler middleware after", msg)
+				return msgs, err
+			}
+		})
 	err := routerBus.AddHandlers(cqrs.NewHandler[Cmd]("main", pubsub, func(ctx context.Context, v *Cmd) error {
 		t.Log("main handler", v)
-		time.Sleep(time.Second * 5)
 		return nil
 	}))
-
 	assert.NoError(t, err)
+
+	bus := routerBus.WithPublisher(pubsub)
 
 	go publishMessage(ctx, bus)
 

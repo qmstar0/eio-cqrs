@@ -2,34 +2,32 @@ package cqrs
 
 import (
 	"context"
+	"fmt"
 	"github.com/qmstar0/eio"
 	"github.com/qmstar0/eio/message"
 	"github.com/qmstar0/eio/processor"
 	"reflect"
 )
 
-type Callback func(msg *message.Context)
-
-type Bus interface {
+type PublishBus interface {
 	Publish(ctx context.Context, cmd any, callbacks ...Callback) error
-	WithRouter(router *processor.Router, middlewares ...HandleMiddleware) RouterBus
+}
+type RouterBus interface {
+	AddHandlers(handlers ...Handler) error
+	WithPublisher(publisher eio.Publisher, middlewares ...PublishMiddleware) PublishBus
 }
 
-type PublishingBus struct {
-	publishFn   func(ctx context.Context, data any, callbacks []Callback) error
-	constructor MessageConstructor
+type Router struct {
+	AddHandlerToRouterFn func(handlers Handler) error
+	marshaler            MessageMarshaler
 }
 
-func (p PublishingBus) Publish(ctx context.Context, data any, callbacks ...Callback) error {
-	return p.publishFn(ctx, data, callbacks)
-}
-
-func (p PublishingBus) WithRouter(router *processor.Router, middlewares ...HandleMiddleware) RouterBus {
-	return HandlerRouter(func(handler Handler) error {
+func NewRouterBus(router *processor.Router, marshaler MessageMarshaler, middlewares ...HandleMiddleware) RouterBus {
+	addHandlerToRouterFn := func(handler Handler) error {
 		handleFn := loadHandleMiddleware(func(msg *message.Context) ([]*message.Context, error) {
 			var err error
 			data := handler.SubscribedTo()
-			if err = p.constructor.DecodeMessage(msg, data); err != nil {
+			if err = marshaler.Unmarshal(msg, data); err != nil {
 				return nil, err
 			}
 
@@ -39,39 +37,70 @@ func (p PublishingBus) WithRouter(router *processor.Router, middlewares ...Handl
 			return nil, nil
 		}, middlewares)
 
-		router.AddHandler(handler.Name(), p.constructor.Topic(handler.SubscribedTo()), handler.Subscriber(), handleFn)
+		router.AddHandler(handler.Name(), marshaler.Name(handler.SubscribedTo()), handler.Subscriber(), handleFn)
 		return nil
-	})
+	}
+	return &Router{
+		AddHandlerToRouterFn: addHandlerToRouterFn,
+		marshaler:            marshaler,
+	}
 }
 
-func NewBus(publisher eio.Publisher, constructor MessageConstructor, middlewares ...PublishMiddleware) Bus {
+func (r *Router) WithPublisher(publisher eio.Publisher, middlewares ...PublishMiddleware) PublishBus {
 	if publisher == nil {
 		panic("missing publisher")
 	}
-	if constructor == nil {
-		panic("missing constructor")
-	}
-
 	publishMessageFn := loadPublishMiddleware(func(topic string, msg *message.Context) error {
 		return publisher.Publish(topic, msg)
 	}, middlewares)
 
-	return &PublishingBus{
-		publishFn: func(ctx context.Context, cmd any, callbacks []Callback) error {
-			msg, err := constructor.EncodeMessage(ctx, cmd)
-			if err != nil {
-				return err
-			}
+	return PublishingBus(func(ctx context.Context, cmd any, callbacks []Callback) error {
+		msg, err := r.marshaler.Marshal(ctx, cmd)
+		if err != nil {
+			return err
+		}
 
-			if len(callbacks) > 0 {
-				context.AfterFunc(msg, func() { mergeCallback(callbacks...) })
-			}
+		if len(callbacks) > 0 {
+			context.AfterFunc(msg, func() { mergeCallback(callbacks...) })
+		}
 
-			return publishMessageFn(constructor.Topic(cmd), msg)
-		},
-		constructor: constructor,
-	}
+		return publishMessageFn(r.marshaler.Name(cmd), msg)
+	})
 }
+
+func (r *Router) AddHandlers(handlers ...Handler) error {
+	var err error
+	for i := range handlers {
+		handler := handlers[i]
+		to := handler.SubscribedTo()
+		if !isPointerType(to) {
+			return SubscribedToTypeError{message: to}
+		}
+
+		if err = r.AddHandlerToRouterFn(handler); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type PublishingBus func(ctx context.Context, data any, callbacks []Callback) error
+
+func (f PublishingBus) Publish(ctx context.Context, data any, callbacks ...Callback) error {
+	return f(ctx, data, callbacks)
+}
+
+type HandleMiddleware processor.HandlerMiddleware
+
+func loadHandleMiddleware(handlerFunc processor.HandlerFunc, middlewares []HandleMiddleware) processor.HandlerFunc {
+	handleFn := handlerFunc
+	for i := range middlewares {
+		handleFn = middlewares[i](handleFn)
+	}
+	return handleFn
+}
+
+type Callback func(msg *message.Context)
 
 func mergeCallback(callbacks ...Callback) Callback {
 	return func(msg *message.Context) {
@@ -79,10 +108,6 @@ func mergeCallback(callbacks ...Callback) Callback {
 			callbacks[i](msg)
 		}
 	}
-}
-
-func isPointerType(v any) bool {
-	return reflect.ValueOf(v).Kind() == reflect.Ptr
 }
 
 type PublishFunc func(topic string, msg *message.Context) error
@@ -95,4 +120,15 @@ func loadPublishMiddleware(publishFunc PublishFunc, middlewares []PublishMiddlew
 		publishFn = middlewares[i](publishFn)
 	}
 	return publishFn
+}
+func isPointerType(v any) bool {
+	return reflect.ValueOf(v).Kind() == reflect.Ptr
+}
+
+type SubscribedToTypeError struct {
+	message any
+}
+
+func (e SubscribedToTypeError) Error() string {
+	return fmt.Sprintf("类型错误: %T 应该为`指针`", e.message)
 }
