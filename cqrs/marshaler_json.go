@@ -9,18 +9,18 @@ import (
 	"strings"
 )
 
-type JsonMarshaler struct {
+type jsonMarshaler struct {
 	GenerateIDFunc func() string
 }
 
-func NewJsonMarshaler(generateIDFunc func() string) *JsonMarshaler {
+func NewJsonMarshaler(generateIDFunc func() string) MessageMarshaler {
 	if generateIDFunc == nil {
 		generateIDFunc = eio.NewUUID
 	}
-	return &JsonMarshaler{generateIDFunc}
+	return &jsonMarshaler{generateIDFunc}
 }
 
-func (j JsonMarshaler) Marshal(ctx context.Context, v any) (*message.Context, error) {
+func (j jsonMarshaler) Marshal(ctx context.Context, v any) (*message.Context, error) {
 	var err error
 	msg := message.WithContext(j.GenerateIDFunc(), ctx)
 	msg.Payload, err = json.Marshal(v)
@@ -30,11 +30,11 @@ func (j JsonMarshaler) Marshal(ctx context.Context, v any) (*message.Context, er
 	return msg, nil
 }
 
-func (j JsonMarshaler) Unmarshal(msg *message.Context, v any) error {
+func (j jsonMarshaler) Unmarshal(msg *message.Context, v any) error {
 	return json.Unmarshal(msg.Payload, v)
 }
 
-func (j JsonMarshaler) Name(v interface{}) string {
+func (j jsonMarshaler) Name(v interface{}) string {
 	segments := strings.Split(fmt.Sprintf("%T", v), ".")
 	return segments[len(segments)-1]
 }
