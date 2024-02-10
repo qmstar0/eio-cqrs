@@ -4,9 +4,30 @@
 
 </div>
 
+## 2/10
+
+### v0.2.4
+
+**细节更新**
+
+`Handler.Handle(context.Context, v *E)`变为`Handler.Handle(context.Context, v E)`,
+
 ## 2/4
 
 **发现项目设计上的缺陷，准备重构😕**
+
+### v0.2.3
+
+取消了`v0.2.2`的更新，,删除了提供默认的中间件方法，因为细节设计应当**由开发者实现**
+
+### v0.2.2
+
+新增中间件`WaitAndGetHandleErr()`，该方法可以获取handler在处理后返回的错误，
+通过`err := bus.Publish(...)`的方式捕获handler主动返回的错误
+
+### v0.2.1
+
+修改了部分细节
 
 ### v0.2.0
 
@@ -15,19 +36,6 @@
 - 以publishBus为核心的逻辑修改为以RouterBus为核心
 - RouterBus依然外置
 - 相比之前更方便进行多协议适配
-
-### v0.2.1
-
-修改了部分细节
-
-### v0.2.2
-
-新增中间件`WaitAndGetHandleErr()`，该方法可以获取handler在处理后返回的错误，
-通过`err := bus.Publish(...)`的方式捕获handler主动返回的错误
-
-### v0.2.3
-
-取消了`v0.2.2`的更新，,删除了提供默认的中间件方法，因为细节设计应当**由开发者实现**
 
 ## 2/3 v0.1.0
 

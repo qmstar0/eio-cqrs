@@ -15,13 +15,13 @@ type Handler interface {
 type normHandler[E any] struct {
 	name     string
 	sub      eio.Subscriber
-	handleFn func(ctx context.Context, v *E) error
+	handleFn func(ctx context.Context, v E) error
 }
 
 func NewHandler[E any](
 	name string,
 	subscriber eio.Subscriber,
-	handleFn func(ctx context.Context, v *E) error,
+	handleFn func(ctx context.Context, v E) error,
 ) Handler {
 	return &normHandler[E]{
 		name:     name,
@@ -43,5 +43,5 @@ func (n normHandler[E]) Subscriber() eio.Subscriber {
 }
 
 func (n normHandler[E]) Handle(ctx context.Context, v any) error {
-	return n.handleFn(ctx, v.(*E))
+	return n.handleFn(ctx, v.(E))
 }

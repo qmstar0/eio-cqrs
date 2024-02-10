@@ -6,6 +6,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/qmstar0/eio v1.1.5 h1:fNIy3yRBh0EaK4S4UhU/LflTcCGS9Ap54d0ibhoE6/E=
 github.com/qmstar0/eio v1.1.5/go.mod h1:iYAlkhiR/W5+UHlmCx37qoxCaHffu+8dFW1pdbXw4UE=
+github.com/qmstar0/eio v1.1.6 h1:rIH2mdu9Kx0ovYdpwS9B15li2h0mKZWK2fnza49zxaM=
+github.com/qmstar0/eio v1.1.6/go.mod h1:iYAlkhiR/W5+UHlmCx37qoxCaHffu+8dFW1pdbXw4UE=
 github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcUk=
 github.com/stretchr/testify v1.8.4/go.mod h1:sz/lmYIOXD/1dqDmKjjqLyZ2RngseejIcXlSw2iwfAo=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 h1:yhCVgyC4o1eVCa2tZl7eS0r+SDo693bJlVdllGtEeKM=
