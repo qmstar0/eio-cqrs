@@ -47,7 +47,7 @@ func TestNewRouterBus(t *testing.T) {
 
 	bus := routerBus.WithPublisher(pubsub)
 
-	err := routerBus.AddHandlers(cqrs.NewHandler[Cmd]("main", pubsub, func(ctx context.Context, v *Cmd) error {
+	err := routerBus.AddHandlers(cqrs.NewHandler[Cmd]("main", pubsub, func(ctx context.Context, v Cmd) error {
 		t.Log("main handler", v)
 		return nil
 	}))
@@ -68,7 +68,7 @@ func TestPublishBusMiddleware(t *testing.T) {
 	router := processor.NewRouter()
 
 	routerBus := cqrs.NewRouterBus(router, cqrs.NewJsonMarshaler(nil))
-	err := routerBus.AddHandlers(cqrs.NewHandler[Cmd]("main", pubsub, func(ctx context.Context, v *Cmd) error {
+	err := routerBus.AddHandlers(cqrs.NewHandler[Cmd]("main", pubsub, func(ctx context.Context, v Cmd) error {
 		t.Log("main handler", v)
 		return nil
 	}))
@@ -116,7 +116,7 @@ func TestRouterBusMiddleware(t *testing.T) {
 				return msgs, err
 			}
 		})
-	err := routerBus.AddHandlers(cqrs.NewHandler[Cmd]("main", pubsub, func(ctx context.Context, v *Cmd) error {
+	err := routerBus.AddHandlers(cqrs.NewHandler[Cmd]("main", pubsub, func(ctx context.Context, v Cmd) error {
 		t.Log("main handler", v)
 		return nil
 	}))
