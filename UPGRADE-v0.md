@@ -4,6 +4,15 @@
 
 </div>
 
+## 2/13
+
+### v0.2.5
+
+添加了proto格式的marshlaler
+
+`ProtoMarshlaler`的入参需要实现`proto.Message`接口
+
+
 ## 2/10
 
 ### v0.2.4
