@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package test;
+
+option go_package = "./test";
+
+message Test {
+  string Name = 1;
+  int32 Age = 2;
+}
+
+
