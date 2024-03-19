@@ -1,11 +1,13 @@
 package cqrs_test
 
 import (
-	"blog/pkg/cqrs"
 	"context"
+	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 	"github.com/qmstar0/eio"
+	"github.com/qmstar0/eio-cqrs/cqrs"
 	"github.com/qmstar0/eio-redis/redispubsub"
+
 	"testing"
 	"time"
 )
