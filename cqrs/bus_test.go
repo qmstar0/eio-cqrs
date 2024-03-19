@@ -1,152 +1,51 @@
 package cqrs_test
 
 import (
+	"blog/pkg/cqrs"
 	"context"
-	"github.com/qmstar0/eio-cqrs/cqrs"
-	"github.com/qmstar0/eio-cqrs/test"
-	"github.com/qmstar0/eio/message"
-	"github.com/qmstar0/eio/processor"
-	"github.com/qmstar0/eio/pubsub/gopubsub"
-	"github.com/stretchr/testify/assert"
+	"github.com/google/uuid"
+	"github.com/qmstar0/eio"
+	"github.com/qmstar0/eio-redis/redispubsub"
 	"testing"
 	"time"
 )
 
-type Cmd struct {
+type Test struct {
 	Name string
+	Age  int
 }
 
-func getTimeoutCtx() context.Context {
-	timeout, _ := context.WithTimeout(context.TODO(), time.Second*3)
-	return timeout
-}
+func TestNewBus(t *testing.T) {
 
-func publishMessage(ctx context.Context, bus cqrs.PublishBus) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			err := bus.Publish(ctx, &Cmd{Name: "box"})
-			if err != nil {
-				panic(err)
-			}
-			time.Sleep(time.Millisecond * 300)
-		}
-	}
-}
+	redisCli := redis.NewClient(&redis.Options{
+		Addr:     "192.168.1.10:6379", //Testing in LAN environment
+		Password: "",
+		DB:       0,
+	})
 
-func TestNewRouterBus(t *testing.T) {
-
-	ctx := getTimeoutCtx()
-
-	pubsub := gopubsub.NewGoPubsub("test", gopubsub.GoPubsubConfig{})
-
-	router := processor.NewRouter()
-
-	routerBus := cqrs.NewRouterBus(router, cqrs.NewJsonMarshaler(nil))
-
-	bus := routerBus.WithPublisher(pubsub)
-
-	err := routerBus.AddHandlers(cqrs.NewHandler[Cmd]("main", pubsub, func(ctx context.Context, v *Cmd) error {
-		t.Log("main handler", v)
-		return nil
-	}))
-	assert.NoError(t, err)
-
-	go publishMessage(ctx, bus)
-
-	err = router.Run(ctx)
-	assert.NoError(t, err)
-}
-
-func TestPublishBusMiddleware(t *testing.T) {
-
-	ctx := getTimeoutCtx()
-
-	pubsub := gopubsub.NewGoPubsub("test", gopubsub.GoPubsubConfig{})
-
-	router := processor.NewRouter()
-
-	routerBus := cqrs.NewRouterBus(router, cqrs.NewJsonMarshaler(nil))
-	err := routerBus.AddHandlers(cqrs.NewHandler[Cmd]("main", pubsub, func(ctx context.Context, v *Cmd) error {
-		t.Log("main handler", v)
-		return nil
-	}))
-	assert.NoError(t, err)
-
-	bus := routerBus.WithPublisher(pubsub,
-		func(publishFunc cqrs.PublishFunc) cqrs.PublishFunc {
-			return func(topic string, msg *message.Context) error {
-				t.Log("publish1 option before", topic, msg)
-				err := publishFunc(topic, msg)
-				t.Log("publish1 option after", topic, msg)
-				return err
-			}
-		},
-		func(publishFunc cqrs.PublishFunc) cqrs.PublishFunc {
-			return func(topic string, msg *message.Context) error {
-				t.Log("publish2 option before", topic, msg)
-				err := publishFunc(topic, msg)
-				t.Log("publish2 option after", topic, msg)
-				return err
-			}
-		},
+	var (
+		ctx, cc = context.WithTimeout(context.Background(), time.Second*5)
 	)
+	defer cc()
 
-	go publishMessage(ctx, bus)
+	pub := redispubsub.NewRedisPublisher(redisCli)
+	defer pub.Close()
+	sub := redispubsub.NewRedisSubscriber(redisCli)
+	defer sub.Close()
 
-	err = router.Run(ctx)
-	assert.NoError(t, err)
-}
-func TestRouterBusMiddleware(t *testing.T) {
-	ctx := getTimeoutCtx()
+	bus := cqrs.NewBus(pub, sub, eio.NewJSONCodec(), func() string {
+		return uuid.New().String()
+	})
 
-	pubsub := gopubsub.NewGoPubsub("test", gopubsub.GoPubsubConfig{})
-
-	router := processor.NewRouter()
-
-	routerBus := cqrs.NewRouterBus(router, cqrs.NewJsonMarshaler(nil),
-		func(fn processor.HandlerFunc) processor.HandlerFunc {
-			return func(msg *message.Context) ([]*message.Context, error) {
-				msg.SetValue(1, 1)
-				t.Log("handler middleware before", msg)
-				msgs, err := fn(msg)
-				assert.Equal(t, msg.Value(1), 1)
-				t.Log("handler middleware after", msg)
-				return msgs, err
-			}
-		})
-	err := routerBus.AddHandlers(cqrs.NewHandler[Cmd]("main", pubsub, func(ctx context.Context, v *Cmd) error {
-		t.Log("main handler", v)
+	bus.AddHandler(cqrs.NewHandler[Test](func(ctx context.Context, v *Test) error {
+		t.Log("run decorator", v, cqrs.GetIdFromCtx(ctx), cqrs.GetTimestampFromCtx(ctx))
 		return nil
 	}))
-	assert.NoError(t, err)
 
-	bus := routerBus.WithPublisher(pubsub)
-
-	go publishMessage(ctx, bus)
-
-	err = router.Run(ctx)
-	assert.NoError(t, err)
-}
-
-func TestProtoMarshaler(t *testing.T) {
-	ctx := getTimeoutCtx()
-
-	pubsub := gopubsub.NewGoPubsub("test", gopubsub.GoPubsubConfig{})
-
-	router := processor.NewRouter()
-
-	routerBus := cqrs.NewRouterBus(router, cqrs.NewProtoMarshaler(nil))
-
-	bus := routerBus.WithPublisher(pubsub)
-
-	err := routerBus.AddHandlers(cqrs.NewHandler[test.Test]("main", pubsub, func(ctx context.Context, v *test.Test) error {
-		t.Log("main handler", v)
-		return nil
-	}))
-	assert.NoError(t, err)
+	time.AfterFunc(time.Second*3, func() {
+		sub.Close()
+		t.Log("sub closed")
+	})
 
 	go func() {
 		for {
@@ -154,18 +53,16 @@ func TestProtoMarshaler(t *testing.T) {
 			case <-ctx.Done():
 				return
 			default:
-				err := bus.Publish(ctx, &test.Test{
-					Name: "bob",
-					Age:  18,
+				err := bus.Publish(ctx, Test{
+					Name: "QMstar",
+					Age:  20,
 				})
 				if err != nil {
-					panic(err)
+					t.Error(err)
 				}
 				time.Sleep(time.Millisecond * 300)
 			}
 		}
 	}()
-
-	err = router.Run(ctx)
-	assert.NoError(t, err)
+	<-ctx.Done()
 }
